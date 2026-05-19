@@ -1100,7 +1100,7 @@ bool ClangImporter::canReadPCH(StringRef PCHFilename) {
   clang::DiagnosticOptions diagOpts;
   clang::CompilerInstance CI(std::move(invocation),
                              Impl.Instance->getPCHContainerOperations(),
-                             &Impl.Instance->getModuleCache());
+                             Impl.Instance->getModuleCachePtr());
   CI.setTarget(&Impl.Instance->getTarget());
   CI.setDiagnostics(&*clang::CompilerInstance::createDiagnostics(
       Impl.Instance->getVirtualFileSystem(), diagOpts));
@@ -2168,7 +2168,7 @@ std::string ClangImporter::getBridgingHeaderContents(
 
   clang::CompilerInstance rewriteInstance(
       std::move(invocation), Impl.Instance->getPCHContainerOperations(),
-      &Impl.Instance->getModuleCache());
+      Impl.Instance->getModuleCachePtr());
 
   if (Impl.CAS)
     rewriteInstance.setCASDatabases(Impl.CAS, Impl.ResultCache);
@@ -2276,7 +2276,7 @@ ClangImporter::cloneCompilerInstanceForPrecompiling() {
 
   auto clonedInstance = std::make_unique<clang::CompilerInstance>(
       std::move(invocation), Impl.Instance->getPCHContainerOperations(),
-      &Impl.Instance->getModuleCache());
+      Impl.Instance->getModuleCachePtr());
 
   if (Impl.CAS)
     clonedInstance->setCASDatabases(Impl.CAS, Impl.ResultCache);
