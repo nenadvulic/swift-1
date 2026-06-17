@@ -34,7 +34,7 @@ public struct OutputRawSpan: ~Copyable, ~Escapable {
 
   /// Create an OutputRawSpan with zero capacity.
   @_alwaysEmitIntoClient
-  @lifetime(immortal)
+  @_lifetime(immortal)
   public init() {
     unsafe _pointer = nil
     capacity = 0
@@ -104,7 +104,7 @@ extension OutputRawSpan {
 
   @unsafe
   @_alwaysEmitIntoClient
-  @lifetime(borrow buffer)
+  @_lifetime(borrow buffer)
   internal init(
     _uncheckedBuffer buffer: UnsafeMutableRawBufferPointer,
     initializedCount: Int
@@ -127,7 +127,7 @@ extension OutputRawSpan {
   ///                       at the beginning of `buffer`.
   @unsafe
   @_alwaysEmitIntoClient
-  @lifetime(borrow buffer)
+  @_lifetime(borrow buffer)
   public init(
     buffer: UnsafeMutableRawBufferPointer,
     initializedCount: Int
@@ -160,7 +160,7 @@ extension OutputRawSpan {
   ///                       at the beginning of `buffer`.
   @unsafe
   @_alwaysEmitIntoClient
-  @lifetime(borrow buffer)
+  @_lifetime(borrow buffer)
   public init(
     buffer: borrowing Slice<UnsafeMutableRawBufferPointer>,
     initializedCount: Int
@@ -181,7 +181,7 @@ extension OutputRawSpan {
   ///
   /// - Parameter value: The byte to append.
   @_alwaysEmitIntoClient
-  @lifetime(self: copy self)
+  @_lifetime(self: copy self)
   public mutating func append(_ value: UInt8) {
     unsafe _append(value, as: UInt8.self)
   }
@@ -193,7 +193,7 @@ extension OutputRawSpan {
   /// - Returns: The removed byte.
   @_alwaysEmitIntoClient
   @discardableResult
-  @lifetime(self: copy self)
+  @_lifetime(self: copy self)
   public mutating func removeLast() -> UInt8 {
     _precondition(!isEmpty, "OutputRawSpan underflow")
     _count &-= 1
@@ -208,7 +208,7 @@ extension OutputRawSpan {
   /// - Parameter n: The number of bytes to remove.
   ///     `n` must not be negative or greater than `byteCount`.
   @_alwaysEmitIntoClient
-  @lifetime(self: copy self)
+  @_lifetime(self: copy self)
   public mutating func removeLast(_ n: Int) {
     _precondition(n >= 0, "Can't remove a negative number of bytes")
     _precondition(n <= _count, "OutputRawSpan underflow")
@@ -218,7 +218,7 @@ extension OutputRawSpan {
   /// Remove all this span's bytes and return its memory
   /// to the uninitialized state.
   @_alwaysEmitIntoClient
-  @lifetime(self: copy self)
+  @_lifetime(self: copy self)
   public mutating func removeAll() {
     // TODO: Consider an option to zero the `_count` bytes being removed.
     _count = 0
@@ -282,7 +282,7 @@ extension OutputRawSpan {
   ///   - type: The type of the value.
   @_alwaysEmitIntoClient
   @unsafe
-  @lifetime(self: copy self)
+  @_lifetime(self: copy self)
   public mutating func append<T: BitwiseCopyable>(_ value: T, as type: T.Type) {
     unsafe _append(value, as: T.self)
   }
@@ -354,7 +354,7 @@ extension OutputRawSpan {
   ///   - type: The type of the instance to store repeatedly.
   @_alwaysEmitIntoClient
   @unsafe
-  @lifetime(self: copy self)
+  @_lifetime(self: copy self)
   public mutating func append<T: BitwiseCopyable>(
     repeating repeatedValue: T,
     count: Int,
@@ -428,61 +428,11 @@ extension OutputRawSpan {
 @available(SwiftCompatibilitySpan 5.0, *)
 @_originallyDefinedIn(module: "Swift;CompatibilitySpan", SwiftCompatibilitySpan 6.2)
 extension OutputRawSpan {
-  /// Appends to the span as elements of a specific type.
-  ///
-  /// There must be at least `n * MemoryLayout<T>.stride` bytes
-  /// available in the span. The address of the next uninitialized byte
-  /// must be well-aligned for instances of type `type`.
-  ///
-  /// Inside the closure, initialize elements by appending to `typedSpan`.
-  /// After the closure returns, the number of bytes initialized will be
-  /// correctly updated.
-  ///
-  /// If the closure throws an error, the bytes for the elements appended
-  /// until that point will remain initialized.
-  ///
-  /// - Parameters:
-  ///   - n: The number of `T` elements to initialize.
-  ///   - type: The type of the elements to store.
-  ///   - initializer: A closure that initializes new elements.
-  ///     - Parameters:
-  ///       - typedSpan: An `OutputSpan` over enough bytes to initialize
-  ///         the specified number of additional elements.
-  @_alwaysEmitIntoClient
-  @_lifetime(self: copy self)
-  public mutating func append<T, E: Error>(
-    upTo n: Int,
-    as type: T.Type,
-    initializingWith initializer:
-      (_ typedSpan: inout OutputSpan<T>) throws(E) -> Void
-  ) throws(E) where T: ConvertibleToBytes & BitwiseCopyable {
-    let total = n * MemoryLayout<T>.stride
-    _precondition(total <= freeCapacity, "OutputRawSpan capacity overflow")
-    let tail = unsafe _tail()
-    var initialized = 0
-    defer {
-      _count += initialized &* MemoryLayout<T>.stride
-    }
-    try unsafe tail.withMemoryRebound(to: T.self, capacity: n) { p throws(E) in
-      let buffer = unsafe UnsafeMutableBufferPointer<T>(start: p, count: n)
-      var typedSpan = unsafe OutputSpan<T>(buffer: buffer, initializedCount: 0)
-      defer {
-        initialized = unsafe typedSpan.finalize(for: buffer)
-        typedSpan = .init()
-      }
-      try initializer(&typedSpan)
-    }
-  }
-}
-
-@available(SwiftCompatibilitySpan 5.0, *)
-@_originallyDefinedIn(module: "Swift;CompatibilitySpan", SwiftCompatibilitySpan 6.2)
-extension OutputRawSpan {
   /// Borrow the underlying initialized memory for read-only access.
   @_alwaysEmitIntoClient
   @_transparent
   public var bytes: RawSpan {
-    @lifetime(borrow self)
+    @_lifetime(borrow self)
     borrowing get {
       let buffer = unsafe UnsafeRawBufferPointer(start: _pointer, count: _count)
       let span = unsafe RawSpan(_unsafeBytes: buffer)
@@ -494,7 +444,7 @@ extension OutputRawSpan {
   @_alwaysEmitIntoClient
   @_transparent
   public var mutableBytes: MutableRawSpan {
-    @lifetime(&self)
+    @_lifetime(&self)
     mutating get {
       let buffer = unsafe UnsafeMutableRawBufferPointer(
         start: _pointer, count: _count
@@ -536,7 +486,7 @@ extension OutputRawSpan {
   /// - Returns: The return value of the `body` closure.
   @_alwaysEmitIntoClient
   @_transparent
-  @lifetime(self: copy self)
+  @_lifetime(self: copy self)
   @unsafe
   public mutating func withUnsafeMutableBytes<E: Error, R: ~Copyable>(
     _ body: (

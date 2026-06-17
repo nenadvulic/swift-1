@@ -31,6 +31,7 @@
 #include "swift/AST/MacroDefinition.h"
 #include "swift/AST/ParameterList.h"
 #include "swift/AST/ProtocolConformance.h"
+#include "swift/AST/SILOptions.h"
 #include "swift/AST/TypeCheckRequests.h"
 #include "swift/AST/TypeTransform.h"
 #include "swift/AST/Types.h"
@@ -2062,6 +2063,10 @@ SolutionResult ConstraintSystem::salvage() {
     // Solve the system.
     solveImpl(viable);
 
+    // We have to keep solverState around for diagnoseAmbiguityWithFixes(),
+    // but we should not record any more changes from this point on.
+    state.Trail.close();
+
     // If we hit a threshold, we're done.
     if (isTooComplex(viable))
       return SolutionResult::forTooComplex(getTooComplexRange());
@@ -4066,8 +4071,8 @@ ConstraintSystem::getArgumentInfoLocator(ConstraintLocator *locator) {
   if (auto *UME = getAsExpr<UnresolvedMemberExpr>(anchor))
     return getConstraintLocator(UME);
 
-  // All implicit x[dynamicMember:] subscript calls can share the same argument
-  // list.
+  // All implicit `x[dynamicMember:...]` subscript calls can share the same
+  // argument list.
   if (locator->findLast<LocatorPathElt::ImplicitDynamicMemberSubscript>()) {
     return getConstraintLocator(
         ASTNode(), LocatorPathElt::ImplicitDynamicMemberSubscript());
@@ -4135,37 +4140,6 @@ Solution::getConversionRestriction(CanType type1, CanType type2) const {
     return restriction->second;
   return std::nullopt;
 }
-
-#ifndef NDEBUG
-/// Given an apply expr, returns true if it is expected to have a direct callee
-/// overload, resolvable using `getChoiceFor`. Otherwise, returns false.
-static bool shouldHaveDirectCalleeOverload(const CallExpr *callExpr) {
-  auto *fnExpr = callExpr->getDirectCallee();
-
-  // An apply of an apply/subscript doesn't have a direct callee.
-  if (isa<ApplyExpr>(fnExpr) || isa<SubscriptExpr>(fnExpr))
-    return false;
-
-  // Applies of closures don't have callee overloads.
-  if (isa<ClosureExpr>(fnExpr))
-    return false;
-
-  // No direct callee for a try!/try?.
-  if (isa<ForceTryExpr>(fnExpr) || isa<OptionalTryExpr>(fnExpr))
-    return false;
-
-  // If we have an intermediate cast, there's no direct callee.
-  if (isa<ExplicitCastExpr>(fnExpr))
-    return false;
-
-  // No direct callee for a ternary expr.
-  if (isa<TernaryExpr>(fnExpr))
-    return false;
-
-  // Assume that anything else would have a direct callee.
-  return true;
-}
-#endif
 
 ASTNode ConstraintSystem::includingParentApply(ASTNode node) {
   if (auto *expr = getAsExpr(node)) {
@@ -4258,9 +4232,6 @@ Solution::getFunctionArgApplyInfo(ConstraintLocator *locator) const {
       if (metaTy->getInstanceType()->is<TupleType>())
         return std::nullopt;
     }
-
-    assert(!shouldHaveDirectCalleeOverload(call) &&
-             "Should we have resolved a callee for this?");
   }
 
   // Try to resolve the function type by loading lvalues and looking through

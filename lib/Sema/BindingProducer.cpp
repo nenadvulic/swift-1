@@ -454,7 +454,7 @@ bool TypeVarBindingProducer::computeNext() {
   return true;
 }
 
-std::optional<std::pair<ConstraintFix *, unsigned>>
+std::optional<std::pair<ConstraintFix *, FixImpact>>
 TypeVariableBinding::fixForHole(ConstraintSystem &cs) const {
   auto *dstLocator = TypeVar->getImpl().getLocator();
   auto *srcLocator = Binding.getLocator();
@@ -475,7 +475,7 @@ TypeVariableBinding::fixForHole(ConstraintSystem &cs) const {
       return std::nullopt;
   }
 
-  unsigned defaultImpact = 1;
+  auto defaultImpact = FixImpact::Mismatch;
 
   if (auto *GP = TypeVar->getImpl().getGenericParameter()) {
     // If it is representative for a key path root, let's emit a more
@@ -487,6 +487,16 @@ TypeVariableBinding::fixForHole(ConstraintSystem &cs) const {
           cs, keyPathRoot->getImpl().getLocator());
       return std::make_pair(fix, defaultImpact);
     } else {
+      // If there are other fixes around this generic parameter (or its use
+      // site), let's increase impact of the default to prioritize solutions
+      // with fewer fixes.
+      if (llvm::any_of(cs.getFixes(), [&](const ConstraintFix *fix) {
+            return fix->getAnchor() == dstLocator->getAnchor() ||
+                   fix->getAnchor() == srcLocator->getAnchor();
+          })) {
+        defaultImpact += FixImpact::TypeMismatch + 1;
+      }
+
       auto path = dstLocator->getPath();
       // Drop `generic parameter` locator element so that all missing
       // generic parameters related to the same path can be coalesced later.
@@ -547,7 +557,7 @@ TypeVariableBinding::fixForHole(ConstraintSystem &cs) const {
     // nil fix.
     if (isExpr<NilLiteralExpr>(srcLocator->getAnchor())) {
       ConstraintFix *fix = SpecifyContextualTypeForNil::create(cs, dstLocator);
-      return std::make_pair(fix, /*impact=*/(unsigned)10);
+      return std::make_pair(fix, FixImpact::InvalidAST);
     }
 
     // If the placeholder is in an invalid position, we'll have already
@@ -563,7 +573,7 @@ TypeVariableBinding::fixForHole(ConstraintSystem &cs) const {
     // This is a dramatic event, it means that there is absolutely
     // no contextual information to resolve type of `nil`.
     ConstraintFix *fix = SpecifyContextualTypeForNil::create(cs, dstLocator);
-    return std::make_pair(fix, /*impact=*/(unsigned)10);
+    return std::make_pair(fix, FixImpact::InvalidAST);
   }
 
   if (auto pattern = dstLocator->getPatternMatch()) {
@@ -596,7 +606,7 @@ TypeVariableBinding::fixForHole(ConstraintSystem &cs) const {
       // variable's type.
       ConstraintFix *fix =
           IgnoreUnresolvedPatternVar::create(cs, pattern.get(), dstLocator);
-      return std::make_pair(fix, /*impact=*/(unsigned)100);
+      return std::make_pair(fix, FixImpact::InvalidAST * 10);
     }
   }
 

@@ -410,6 +410,7 @@ struct AliasAnalysis {
     // First try to figure out to which argument(s) the address "escapes" to.
     if let result = memLoc.addressWithPath.visit(using: visitor,
                                                  initialWalkingDirection: memLoc.walkingDirection,
+                                                 complexityBudget: getComplexityBudget(for: apply.parentFunction),
                                                  context)
     {
       // The resulting effects are the argument effects to which `address` escapes to.
@@ -496,9 +497,7 @@ struct AliasAnalysis {
   // the EscapeUtils do several hundred up/down walks which is much more than needed in most cases.
   private func getComplexityBudget(for function: Function) -> Int {
     if cache.estimatedFunctionSize == nil {
-      var numInsts = 0
-      for _ in function.instructions { numInsts += 1 }
-      cache.estimatedFunctionSize = numInsts
+      cache.estimatedFunctionSize = function.getInstructionCount()
     }
     return 1_000_000 / cache.estimatedFunctionSize!
   }

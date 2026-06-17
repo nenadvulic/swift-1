@@ -223,7 +223,7 @@ suite.test("InlineArray initialization")
 }
 
 suite.test("InlineArray initialization underflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
+.require(.crashTesting)
 .require(.stdlib_6_2).code {
   guard #available(SwiftStdlib 6.2, *) else { return }
 
@@ -354,7 +354,7 @@ suite.test("Array initialization throws")
 }
 
 suite.test("Array initialization overflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
+.require(.crashTesting)
 .require(.stdlib_6_2).code {
 
   expectCrashLater()
@@ -367,7 +367,7 @@ suite.test("Array initialization overflow")
 }
 
 suite.test("Array initialization underflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
+.require(.crashTesting)
 .require(.stdlib_6_2).code {
 
   expectCrashLater()
@@ -433,7 +433,7 @@ suite.test("Array append throws")
 }
 
 suite.test("Array append overflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
+.require(.crashTesting)
 .require(.stdlib_6_2).code {
 
   expectCrashLater()
@@ -447,7 +447,7 @@ suite.test("Array append overflow")
 }
 
 suite.test("Array append underflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
+.require(.crashTesting)
 .require(.stdlib_6_2).code {
 
   expectCrashLater()
@@ -507,7 +507,7 @@ suite.test("ContiguousArray initialization")
 }
 
 suite.test("ContiguousArray initialization overflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
+.require(.crashTesting)
 .require(.stdlib_6_2).code {
 
   expectCrashLater()
@@ -520,7 +520,7 @@ suite.test("ContiguousArray initialization overflow")
 }
 
 suite.test("ContiguousArray initialization underflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
+.require(.crashTesting)
 .require(.stdlib_6_2).code {
 
   expectCrashLater()
@@ -586,7 +586,7 @@ suite.test("ContiguousArray append throws")
 }
 
 suite.test("ContiguousArray append overflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
+.require(.crashTesting)
 .require(.stdlib_6_2).code {
 
   expectCrashLater()
@@ -600,7 +600,7 @@ suite.test("ContiguousArray append overflow")
 }
 
 suite.test("ContiguousArray.append underflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
+.require(.crashTesting)
 .require(.stdlib_6_2).code {
 
   expectCrashLater()
@@ -609,97 +609,4 @@ suite.test("ContiguousArray.append underflow")
     $0.removeAll()
   }
   expectUnreachable("ContiguousArray.append should have trapped.")
-}
-
-suite.test("append(upTo:initializingWith:)")
-.require(.stdlib_6_4).code {
-  let capacity = 4
-  var a = ContiguousArray<Int>()
-  a.append(addingCapacity: capacity) { span in
-    span.append(upTo: capacity) { rawSpan in
-      for i in 0..<capacity {
-        rawSpan.append(i, as: Int.self)
-      }
-    }
-  }
-  expectEqual(a.count, capacity)
-  for i in 0..<capacity {
-    expectEqual(a[i], i)
-  }
-}
-
-suite.test("append(upTo:initializingWith:) partial initialization")
-.require(.stdlib_6_4).code {
-  let capacity = 4
-  var a = ContiguousArray<Int>()
-  a.append(addingCapacity: capacity) { span in
-    span.append(upTo: capacity) { rawSpan in
-      for i in 0..<2 {
-        rawSpan.append(i, as: Int.self)
-      }
-    }
-  }
-  expectEqual(a.count, 2)
-  expectEqual(a[0], 0)
-  expectEqual(a[1], 1)
-}
-
-suite.test("append(upTo:initializingWith:) partial fill throws")
-.require(.stdlib_6_4).code {
-  var a = ContiguousArray<Int32>()
-  try! a.append(addingCapacity: 4) {
-    do throws(MyTestError) {
-      try $0.append(upTo: 4) {
-        rawSpan throws(MyTestError) in
-        rawSpan.append(10, as: Int32.self)
-        rawSpan.append(20, as: Int32.self)
-        rawSpan.append(0xff)
-        expectEqual(rawSpan.byteCount, 9)
-        throw MyTestError.error
-      }
-    }
-    catch MyTestError.error {}
-  }
-  expectEqual(a.count, 2)
-  expectEqual(a[0], 10)
-  expectEqual(a[1], 20)
-}
-
-suite.test("append(upTo:initializingWith:) appends to existing")
-.require(.stdlib_6_4).code {
-  var a = ContiguousArray([10, 20])
-  a.append(addingCapacity: 4) { span in
-    span.append(upTo: 2) { rawSpan in
-      rawSpan.append(30, as: Int.self)
-      rawSpan.append(40, as: Int.self)
-    }
-  }
-  expectEqual(a.count, 4)
-  expectTrue(a.elementsEqual([10, 20, 30, 40]))
-}
-
-suite.test("append(upTo:initializingWith:) negative count")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
-.require(.stdlib_6_4).code {
-  var a = ContiguousArray<Int>()
-  a.append(addingCapacity: 4) { span in
-    expectCrashLater()
-    span.append(upTo: -1) { rawSpan in }
-    expectUnreachable("OutputSpan.append should have trapped.")
-  }
-}
-
-suite.test("append(upTo:initializingWith:) traps on capacity overflow")
-.skip(.wasiAny(reason: "Trap tests aren't supported on WASI."))
-.require(.stdlib_6_4).code {
-  var a = ContiguousArray<Int>()
-  a.append(addingCapacity: 2) { span in
-    expectCrashLater()
-    span.append(upTo: 3) { rawSpan in
-      for i in 0..<3 {
-        rawSpan.append(i, as: Int.self)
-      }
-    }
-    expectUnreachable("OutputSpan.append should have trapped.")
-  }
 }
