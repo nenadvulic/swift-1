@@ -979,6 +979,48 @@ extension String.UTF16View {
       alignedRange: alignedRange.lowerBound ..< alignedRange.upperBound)
   }
 
+#if SWIFT_STDLIB_ENABLE_VECTOR_TYPES
+  @inline(__always)
+  internal static func _utf8WordIsASCII(_ p: UnsafePointer<UInt8>) -> Bool {
+    let word = unsafe UnsafeRawPointer(p).loadUnaligned(as: UInt64.self)
+    return word & 0x8080_8080_8080_8080 == 0
+  }
+
+  @inline(never) //outlined to avoid regressing codegen for non-ASCII inputs
+  internal static func transcodeASCIIChunk(
+    _ utf8: UnsafeBufferPointer<UInt8>,
+    from start: Int,
+    to end: Int,
+    into buffer: UnsafeMutableBufferPointer<UInt16>,
+    at writeStart: Int
+  ) -> Int {
+    let src = unsafe utf8.baseAddress._unsafelyUnwrappedUnchecked
+    let dst = unsafe buffer.baseAddress._unsafelyUnwrappedUnchecked
+    var readIdx = start
+    var writeIdx = writeStart
+    let blockSize = 16
+    while readIdx &+ blockSize <= end {
+      let block = unsafe UnsafeRawPointer(
+        src + readIdx
+      ).loadUnaligned(as: SIMD16<UInt8>.self)
+      if block.max() >= 0x80 { break }
+      for i in 0 ..< blockSize {
+        unsafe (dst + writeIdx + i).initialize(to: UInt16(block[i]))
+      }
+      readIdx &+= blockSize
+      writeIdx &+= blockSize
+    }
+    while readIdx < end {
+      let byte = unsafe src[readIdx]
+      if byte >= 0x80 { break }
+      unsafe (dst + writeIdx).initialize(to: UInt16(byte))
+      readIdx &+= 1
+      writeIdx &+= 1
+    }
+    return readIdx &- start
+  }
+#endif
+
   // Copy (i.e. transcode to UTF-16) our contents into a buffer. `alignedRange`
   // means that the indices are part of the UTF16View.indices -- they are either
   // scalar-aligned or transcoded (e.g. derived from the UTF-16 view). They do
@@ -1006,23 +1048,13 @@ extension String.UTF16View {
         _internalInvariant(range.lowerBound.transcodedOffset == 0)
         _internalInvariant(range.upperBound.transcodedOffset == 0)
         #if SWIFT_STDLIB_ENABLE_VECTOR_TYPES
-        let utf8Base = unsafe utf8.baseAddress._unsafelyUnwrappedUnchecked
-        let bufBase = unsafe buffer.baseAddress._unsafelyUnwrappedUnchecked
-        let blockSize = 16
-        while readIdx &+ blockSize <= readEnd {
-          let srcBlock = unsafe UnsafeRawPointer(
-            utf8Base + readIdx
-          ).loadUnaligned(as: SIMD16<UInt8>.self)
-          for i in 0 ..< blockSize {
-            unsafe (bufBase + writeIdx + i).initialize(
-              to: UInt16(srcBlock[i]))
-          }
-          readIdx &+= blockSize
-          writeIdx &+= blockSize
-        }
+        let transcodedCount = unsafe Self.transcodeASCIIChunk(
+          utf8, from: readIdx, to: readEnd, into: buffer, at: writeIdx)
+        readIdx &+= transcodedCount
+        writeIdx &+= transcodedCount
         #endif
         while readIdx < readEnd {
-          unsafe _internalInvariant(utf8[readIdx] <= utf8OneByteMax)
+          unsafe _internalInvariant(utf8[readIdx] < 0x80)
           unsafe buffer[_unchecked: writeIdx] = unsafe UInt16(
             truncatingIfNeeded: utf8[_unchecked: readIdx])
           readIdx &+= 1
@@ -1030,7 +1062,7 @@ extension String.UTF16View {
         }
         return
       }
-
+      
       // Handle mid-transcoded-scalar initial index
       if _slowPath(range.lowerBound.transcodedOffset != 0) {
         _internalInvariant(range.lowerBound.transcodedOffset == 1)
@@ -1041,28 +1073,18 @@ extension String.UTF16View {
         readIdx &+= len
         writeIdx &+= 1
       }
-
+      
       // Transcode middle
       while readIdx < readEnd {
         #if SWIFT_STDLIB_ENABLE_VECTOR_TYPES
-        // Fast path: if the next 16 bytes are all ASCII, widen them directly
-        // without going through _decodeScalar. This is common in mixed-script
-        // strings that are predominantly ASCII (e.g. markup, source code with
-        // occasional non-ASCII identifiers).
-        let blockSize = 16
-        if readIdx &+ blockSize <= readEnd {
-          let srcBlock = unsafe UnsafeRawPointer(
-            utf8.baseAddress._unsafelyUnwrappedUnchecked + readIdx
-          ).loadUnaligned(as: SIMD16<UInt8>.self)
-          if srcBlock.max() <= utf8OneByteMax {
-            _onFastPath()
-            let bufBase = unsafe buffer.baseAddress._unsafelyUnwrappedUnchecked
-            for i in 0 ..< blockSize {
-              unsafe (bufBase + writeIdx + i).initialize(
-                to: UInt16(srcBlock[i]))
-            }
-            readIdx &+= blockSize
-            writeIdx &+= blockSize
+        if readIdx &+ 8 <= readEnd {
+          let p = unsafe utf8.baseAddress._unsafelyUnwrappedUnchecked + readIdx
+          // If we see 8 bytes of ASCII, guess that we may be at the start of a long run of ASCII and bulk-transcode until we hit non-ASCII. transcodeASCIIChunk() is frameless, so the overhead if we guess wrong is minimal
+          if unsafe Self._utf8WordIsASCII(p) {
+            let transcodedCount = unsafe Self.transcodeASCIIChunk(
+              utf8, from: readIdx, to: readEnd, into: buffer, at: writeIdx)
+            readIdx &+= transcodedCount
+            writeIdx &+= transcodedCount
             continue
           }
         }
